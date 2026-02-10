@@ -1,29 +1,56 @@
 {
   "expo": {
-    "name": "Drifter",
-    "slug": "Drifter",
+    "name": "CycleSync",
+    "slug": "cyclesync",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "userInterfaceStyle": "dark",
+    "scheme": "cyclesync",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0A0E1A"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.cyclesync.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "CycleSync needs camera access to scan bicycle QR codes",
+        "NSLocationWhenInUseUsageDescription": "CycleSync needs location to track your ride and find parking spots"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#0A0E1A"
       },
-      "edgeToEdgeEnabled": true
+      "package": "com.cyclesync.app",
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "CycleSync needs camera access to scan bicycle QR codes"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "CycleSync needs location to track your ride and find parking spots"
+        }
+      ]
+    ]
   }
 }
