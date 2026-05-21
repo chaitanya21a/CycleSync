@@ -4,6 +4,7 @@ const Bicycle = require('../models/Bicycle');
 const Ride = require('../models/Ride');
 const Fine = require('../models/Fine');
 const ParkingSpot = require('../models/ParkingSpot');
+const RFIDCard = require('../models/RFIDCard');
 const { auth, adminOnly } = require('../middleware/auth');
 
 const router = express.Router();
@@ -104,6 +105,44 @@ router.put('/users/:id/ban', async (req, res) => {
         await user.save();
 
         res.json({ message: `User ${ban ? 'banned' : 'unbanned'}`, user: { name: user.name, isBanned: user.isBanned } });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// PUT /api/admin/users/:id/rfid
+router.put('/users/:id/rfid', async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+
+        const tagUid = String(req.body.tagUid || '').trim().toUpperCase();
+        if (!tagUid) {
+            return res.status(400).json({ error: 'RFID tag UID is required' });
+        }
+
+        const duplicate = await RFIDCard.findOne({ tagUid, user: { $ne: user._id } });
+        if (duplicate) {
+            return res.status(409).json({ error: 'RFID tag already assigned to another user' });
+        }
+
+        const card = await RFIDCard.findOneAndUpdate(
+            { user: user._id },
+            {
+                tagUid,
+                studentId: user.studentId,
+                user: user._id,
+                isActive: req.body.isActive ?? true,
+                isBlocked: req.body.isBlocked ?? false,
+            },
+            { new: true, upsert: true, runValidators: true }
+        );
+
+        res.json({
+            message: 'RFID card linked successfully',
+            card,
+            user: { id: user._id, name: user.name, studentId: user.studentId },
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

@@ -1,9 +1,22 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const RFIDCard = require('../models/RFIDCard');
 const { auth } = require('../middleware/auth');
 
 const router = express.Router();
+
+const buildAuthResponse = (user, token, authMethod = 'password') => ({
+    token,
+    authMethod,
+    user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        studentId: user.studentId,
+        role: user.role,
+    },
+});
 
 // POST /api/auth/signup
 router.post('/signup', async (req, res) => {
@@ -29,16 +42,7 @@ router.post('/signup', async (req, res) => {
             expiresIn: process.env.JWT_EXPIRE || '7d',
         });
 
-        res.status(201).json({
-            token,
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                studentId: user.studentId,
-                role: user.role,
-            },
-        });
+        res.status(201).json(buildAuthResponse(user, token, 'password'));
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -67,16 +71,44 @@ router.post('/login', async (req, res) => {
             expiresIn: process.env.JWT_EXPIRE || '7d',
         });
 
-        res.json({
-            token,
-            user: {
-                id: user._id,
-                name: user.name,
-                email: user.email,
-                studentId: user.studentId,
-                role: user.role,
-            },
+        res.json(buildAuthResponse(user, token, 'password'));
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/auth/rfid
+router.post('/rfid', async (req, res) => {
+    try {
+        const tagUid = String(req.body.tagUid || '').trim().toUpperCase();
+        if (!tagUid) {
+            return res.status(400).json({ error: 'RFID tag UID is required' });
+        }
+
+        let user;
+        const card = await RFIDCard.findOne({ tagUid, isActive: true, isBlocked: false }).populate('user');
+        if (card?.user) {
+            user = card.user;
+            card.lastUsedAt = new Date();
+            await card.save();
+        } else {
+            // Backward-compatible fallback if RFID UID was directly stored on User.
+            user = await User.findOne({ rfidTagId: tagUid });
+        }
+
+        if (!user) {
+            return res.status(401).json({ error: 'RFID card not recognized' });
+        }
+
+        if (user.isBanned) {
+            return res.status(403).json({ error: 'Account is banned', reason: user.banReason });
+        }
+
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
+            expiresIn: process.env.JWT_EXPIRE || '7d',
         });
+
+        res.json(buildAuthResponse(user, token, 'rfid'));
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

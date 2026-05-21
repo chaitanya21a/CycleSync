@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { USER_PROFILE } from '../constants/mockData';
+import api from '../services/api';
 
 const AuthContext = createContext({});
 
@@ -16,24 +17,45 @@ export function AuthProvider({ children }) {
     }, []);
 
     const login = async (email, password) => {
-        // Mock login — will connect to backend later
-        return new Promise((resolve, reject) => {
-            setTimeout(() => {
-                if (email && password) {
-                    const isAdminUser = email.toLowerCase().includes('admin');
-                    const userData = {
-                        ...USER_PROFILE,
-                        email,
-                        role: isAdminUser ? 'admin' : 'user',
-                        name: isAdminUser ? 'Admin' : USER_PROFILE.name,
-                    };
-                    setUser(userData);
-                    resolve({ success: true, role: userData.role });
-                } else {
-                    reject(new Error('Invalid credentials'));
-                }
-            }, 1000);
-        });
+        try {
+            const response = await api.login(email, password);
+            api.setToken(response.token);
+            setUser(response.user);
+            return { success: true, role: response.user.role };
+        } catch (error) {
+            // Fallback keeps current demo behavior if API is unreachable.
+            return new Promise((resolve, reject) => {
+                setTimeout(() => {
+                    if (email && password) {
+                        const isAdminUser = email.toLowerCase().includes('admin');
+                        const userData = {
+                            ...USER_PROFILE,
+                            email,
+                            role: isAdminUser ? 'admin' : 'user',
+                            name: isAdminUser ? 'Admin' : USER_PROFILE.name,
+                        };
+                        setUser(userData);
+                        resolve({ success: true, role: userData.role });
+                    } else {
+                        reject(new Error('Invalid credentials'));
+                    }
+                }, 1000);
+            });
+        }
+    };
+
+    const loginWithRfid = async (tagUid) => {
+        if (!tagUid) {
+            throw new Error('RFID tag UID is required');
+        }
+        try {
+            const response = await api.loginWithRfid(tagUid);
+            api.setToken(response.token);
+            setUser(response.user);
+            return { success: true, role: response.user.role };
+        } catch (error) {
+            throw new Error(error.message || 'RFID authentication failed');
+        }
     };
 
     const signup = async (userData) => {
@@ -101,6 +123,7 @@ export function AuthProvider({ children }) {
                 isLoading,
                 activeRide,
                 login,
+                loginWithRfid,
                 signup,
                 logout,
                 startRide,

@@ -44,6 +44,13 @@ class ApiService {
         });
     }
 
+    async loginWithRfid(tagUid) {
+        return this.request('/auth/rfid', {
+            method: 'POST',
+            body: JSON.stringify({ tagUid }),
+        });
+    }
+
     // Bicycles
     async getBicycles() {
         return this.request('/bicycles');
@@ -84,6 +91,18 @@ class ApiService {
     // Parking Spots
     async getParkingSpots() {
         return this.request('/parking-spots');
+    }
+
+    // Admin
+    async assignUserRfid(userId, tagUid, options = {}) {
+        return this.request(`/admin/users/${userId}/rfid`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                tagUid,
+                isActive: options.isActive,
+                isBlocked: options.isBlocked,
+            }),
+        });
     }
 }
 

@@ -21,10 +21,11 @@ import { isDesktop, getContainerStyle, responsive, isWeb } from '../../constants
 
 export default function LoginScreen() {
     const router = useRouter();
-    const { login } = useAuth();
+    const { login, loginWithRfid } = useAuth();
     const { width } = useWindowDimensions();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [rfidTagUid, setRfidTagUid] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -73,6 +74,27 @@ export default function LoginScreen() {
             }
         } catch (err) {
             setError(err.message || 'Login failed');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleRfidLogin = async () => {
+        if (!rfidTagUid.trim()) {
+            setError('Please enter an RFID tag UID');
+            return;
+        }
+        setError('');
+        setIsLoading(true);
+        try {
+            const result = await loginWithRfid(rfidTagUid.trim());
+            if (result.role === 'admin') {
+                router.replace('/(admin)');
+            } else {
+                router.replace('/(tabs)');
+            }
+        } catch (err) {
+            setError(err.message || 'RFID login failed');
         } finally {
             setIsLoading(false);
         }
@@ -230,9 +252,36 @@ export default function LoginScreen() {
             {/* Divider */}
             <View style={styles.divider}>
                 <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>or</Text>
+                <Text style={styles.dividerText}>or use RFID</Text>
                 <View style={styles.dividerLine} />
             </View>
+
+            <View style={[styles.inputWrapper, focusedInput === 'rfid' && styles.inputWrapperFocused]}>
+                <View style={[styles.inputIconContainer, focusedInput === 'rfid' && styles.inputIconFocused]}>
+                    <Ionicons name="card-outline" size={20} color={focusedInput === 'rfid' ? COLORS.primary : COLORS.textSecondary} />
+                </View>
+                <TextInput
+                    style={styles.input}
+                    placeholder="RFID Tag UID"
+                    placeholderTextColor={COLORS.textMuted}
+                    value={rfidTagUid}
+                    onChangeText={setRfidTagUid}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    onFocus={() => setFocusedInput('rfid')}
+                    onBlur={() => setFocusedInput(null)}
+                />
+            </View>
+
+            <TouchableOpacity
+                style={[styles.rfidBtn, isLoading && styles.loginBtnDisabled]}
+                onPress={handleRfidLogin}
+                disabled={isLoading}
+                activeOpacity={0.8}
+            >
+                <Ionicons name="radio-outline" size={18} color={COLORS.primary} />
+                <Text style={styles.rfidBtnText}>Sign In with RFID</Text>
+            </TouchableOpacity>
 
             {/* Sign Up Link */}
             <Link href="/(auth)/signup" asChild>
@@ -551,6 +600,23 @@ const styles = StyleSheet.create({
         color: COLORS.textMuted,
         fontSize: SIZES.sm,
         ...FONTS.regular,
+    },
+    rfidBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 10,
+        paddingVertical: 12,
+        borderRadius: SIZES.radius,
+        borderWidth: 1,
+        borderColor: COLORS.borderAccent,
+        backgroundColor: COLORS.bgInput,
+        marginBottom: 12,
+    },
+    rfidBtnText: {
+        color: COLORS.primary,
+        fontSize: SIZES.base,
+        ...FONTS.semibold,
     },
 
     // Signup button
