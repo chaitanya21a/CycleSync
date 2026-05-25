@@ -14,8 +14,20 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, SIZES, SHADOWS } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
-import { STATS, BICYCLES, PARKING_SPOTS } from '../../constants/mockData';
+import { getActiveSession } from '../../services/firebaseService';
 import { isDesktop, getContainerStyle, responsive } from '../../constants/responsive';
+
+// Disabled until hardware sends location data (see firebase-migration design).
+// const PARKING_SPOTS = [
+//     { id: 'PS-001', name: 'Institute Main Gate', capacity: 20, currentCount: 12, icon: '🚪' },
+//     { id: 'PS-002', name: 'Mega Girls Hostel', capacity: 15, currentCount: 8, icon: '📚' },
+//     { id: 'PS-003', name: 'Saraswati Girls Hostel', capacity: 25, currentCount: 18, icon: '🏠' },
+//     { id: 'PS-004', name: 'Mega Boys Hostel', capacity: 10, currentCount: 6, icon: '🍽️' },
+//     { id: 'PS-005', name: 'Krishna Boys Hostel', capacity: 15, currentCount: 4, icon: '⚽' },
+//     { id: 'PS-006', name: 'Civil Engineering Dept', capacity: 20, currentCount: 14, icon: '🎓' },
+//     { id: 'PS-007', name: 'Chemical Engineering Dept', capacity: 10, currentCount: 3, icon: '🏢' },
+//     { id: 'PS-008', name: 'IT Park', capacity: 12, currentCount: 7, icon: '🔧' },
+// ];
 
 function AnimatedStatCard({ icon, label, value, color, glowColor, delay, style }) {
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -60,7 +72,7 @@ function AnimatedStatCard({ icon, label, value, color, glowColor, delay, style }
     );
 }
 
-function QuickAction({ icon, label, color, onPress, delay }) {
+function QuickAction({ icon, label, color, onPress, delay, disabled }) {
     const scaleAnim = useRef(new Animated.Value(0)).current;
     const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -73,11 +85,16 @@ function QuickAction({ icon, label, color, onPress, delay }) {
 
     return (
         <Animated.View style={{ opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}>
-            <TouchableOpacity style={styles.quickAction} onPress={onPress} activeOpacity={0.7}>
-                <View style={[styles.quickActionIcon, { backgroundColor: color + '18' }]}>
-                    <Ionicons name={icon} size={24} color={color} />
+            <TouchableOpacity
+                style={[styles.quickAction, disabled && styles.quickActionDisabled]}
+                onPress={disabled ? null : onPress}
+                activeOpacity={disabled ? 1 : 0.7}
+                disabled={disabled}
+            >
+                <View style={[styles.quickActionIcon, { backgroundColor: disabled ? COLORS.border : color + '18' }]}>
+                    <Ionicons name={icon} size={24} color={disabled ? COLORS.textMuted : color} />
                 </View>
-                <Text style={styles.quickActionLabel}>{label}</Text>
+                <Text style={[styles.quickActionLabel, disabled && { color: COLORS.textMuted }]}>{label}</Text>
             </TouchableOpacity>
         </Animated.View>
     );
@@ -85,7 +102,8 @@ function QuickAction({ icon, label, color, onPress, delay }) {
 
 export default function HomeScreen() {
     const router = useRouter();
-    const { user, activeRide } = useAuth();
+    const { user } = useAuth();
+    const [activeSession, setActiveSession] = useState(null);
     const { width } = useWindowDimensions();
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const slideAnim = useRef(new Animated.Value(20)).current;
@@ -99,13 +117,22 @@ export default function HomeScreen() {
             Animated.timing(fadeAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
             Animated.spring(slideAnim, { toValue: 0, tension: 80, friction: 12, useNativeDriver: true }),
         ]).start();
-
-        if (activeRide) {
-            Animated.spring(bannerSlide, { toValue: 0, tension: 80, friction: 10, useNativeDriver: true }).start();
-        }
     }, []);
 
-    const dailyPercentage = user ? Math.round((user.dailyUsage / user.maxDailyUsage) * 100) : 0;
+    useEffect(() => {
+        if (user?.rfidUid) {
+            getActiveSession(user.rfidUid).then(setActiveSession).catch(() => {});
+        }
+    }, [user?.rfidUid]);
+
+    useEffect(() => {
+        if (activeSession) {
+            Animated.spring(bannerSlide, { toValue: 0, tension: 80, friction: 10, useNativeDriver: true }).start();
+        }
+    }, [activeSession]);
+
+    const isSuspended = user?.isBanned || user?.isAllowed === false;
+    const dailyPercentage = user ? Math.round(((user.dailyUsage?.minutes || 0) / 60) * 100) : 0;
 
     const getGreeting = () => {
         const hour = new Date().getHours();
@@ -159,12 +186,12 @@ export default function HomeScreen() {
                     </Animated.View>
 
                     {/* Active Ride Banner */}
-                    {activeRide && (
+                    {activeSession && (
                         <Animated.View style={{ transform: [{ translateX: bannerSlide }] }}>
                             <TouchableOpacity
                                 style={styles.activeRideBanner}
                                 activeOpacity={0.8}
-                                onPress={() => router.push(`/ride/${activeRide.id}`)}
+                                onPress={() => router.push(`/ride/${activeSession?.sessionId}`)}
                             >
                                 <View style={styles.activeRideLeft}>
                                     <View style={styles.pulsingDot}>
@@ -172,7 +199,7 @@ export default function HomeScreen() {
                                     </View>
                                     <View>
                                         <Text style={styles.activeRideTitle}>🚴 Ride in Progress</Text>
-                                        <Text style={styles.activeRideSub}>{activeRide.bicycleId} • Tap to view</Text>
+                                        <Text style={styles.activeRideSub}>{activeSession?.bicycleId || 'Bicycle'} • Tap to view</Text>
                                     </View>
                                 </View>
                                 <View style={styles.activeRideArrow}>
@@ -180,6 +207,19 @@ export default function HomeScreen() {
                                 </View>
                             </TouchableOpacity>
                         </Animated.View>
+                    )}
+
+                    {/* Suspension Banner */}
+                    {isSuspended && (
+                        <View style={styles.suspensionBanner}>
+                            <View style={styles.suspensionIconBg}>
+                                <Ionicons name="ban-outline" size={22} color={COLORS.danger} />
+                            </View>
+                            <View style={styles.suspensionInfo}>
+                                <Text style={styles.suspensionTitle}>Your account has been suspended</Text>
+                                <Text style={styles.suspensionSub}>Contact admin to resolve this issue</Text>
+                            </View>
+                        </View>
                     )}
 
                     {/* Desktop: Two-column layout */}
@@ -203,20 +243,20 @@ export default function HomeScreen() {
                                     <View style={styles.usageBadge}>
                                         <Ionicons name="flash" size={12} color={COLORS.primary} />
                                         <Text style={styles.usageBadgeText}>
-                                            {user?.dailyUsage || 0}/{user?.maxDailyUsage || 60}m
+                                            {user?.dailyUsage?.minutes || 0}/{user?.maxDailyUsage || 60}m
                                         </Text>
                                     </View>
                                 </View>
 
                                 <View style={styles.usageStats}>
                                     <View style={styles.usageStatItem}>
-                                        <Text style={styles.usageStatValue}>{user?.dailyUsage || 0}</Text>
+                                        <Text style={styles.usageStatValue}>{user?.dailyUsage?.minutes || 0}</Text>
                                         <Text style={styles.usageStatLabel}>min used</Text>
                                     </View>
                                     <View style={styles.usageStatDivider} />
                                     <View style={styles.usageStatItem}>
                                         <Text style={[styles.usageStatValue, { color: COLORS.success }]}>
-                                            {60 - (user?.dailyUsage || 0)}
+                                            {60 - (user?.dailyUsage?.minutes || 0)}
                                         </Text>
                                         <Text style={styles.usageStatLabel}>min left</Text>
                                     </View>
@@ -253,33 +293,36 @@ export default function HomeScreen() {
                                 <Ionicons name="flash-outline" size={18} color={COLORS.textPrimary} /> Quick Actions
                             </Text>
                             <View style={[styles.quickActionsRow, desktop && styles.quickActionsRowDesktop]}>
-                                <QuickAction
+                                {/* Scan QR — disabled until ESP32/hardware writes sessions + location to Firebase */}
+                                {/* <QuickAction
                                     icon="qr-code-outline"
                                     label="Scan QR"
                                     color={COLORS.primary}
                                     onPress={() => router.push('/(tabs)/scan')}
                                     delay={0}
-                                />
-                                <QuickAction
+                                    disabled={isSuspended}
+                                /> */}
+                                {/* Find Spots — disabled until hardware provides location data */}
+                                {/* <QuickAction
                                     icon="map-outline"
                                     label="Find Spots"
                                     color={COLORS.success}
                                     onPress={() => router.push('/(tabs)/map')}
                                     delay={80}
-                                />
+                                /> */}
                                 <QuickAction
                                     icon="time-outline"
                                     label="History"
                                     color={COLORS.secondary}
                                     onPress={() => router.push('/(tabs)/history')}
-                                    delay={160}
+                                    delay={0}
                                 />
                                 <QuickAction
                                     icon="receipt-outline"
                                     label="Fines"
                                     color={COLORS.warning}
                                     onPress={() => router.push('/(tabs)/history')}
-                                    delay={240}
+                                    delay={80}
                                 />
                             </View>
                         </View>
@@ -288,53 +331,12 @@ export default function HomeScreen() {
                         {tablet && <View style={styles.columnGap} />}
 
                         <View style={[tablet && { flex: 1 }]}>
-                            {/* Fleet Stats */}
-                            <Text style={styles.sectionTitle}>
-                                <Ionicons name="analytics-outline" size={18} color={COLORS.textPrimary} /> Fleet Overview
-                            </Text>
-                            <View style={styles.statsGrid}>
-                                <AnimatedStatCard
-                                    icon="bicycle"
-                                    label="Available Now"
-                                    value={STATS.availableBikes}
-                                    color={COLORS.success}
-                                    glowColor={COLORS.successGlow}
-                                    delay={0}
-                                    style={styles.statCardHalf}
-                                />
-                                <AnimatedStatCard
-                                    icon="navigate"
-                                    label="In Use"
-                                    value={STATS.inUseBikes}
-                                    color={COLORS.primary}
-                                    glowColor={COLORS.primaryGlow}
-                                    delay={100}
-                                    style={styles.statCardHalf}
-                                />
-                                <AnimatedStatCard
-                                    icon="build"
-                                    label="Maintenance"
-                                    value={STATS.maintenanceBikes}
-                                    color={COLORS.warning}
-                                    glowColor={COLORS.warningGlow}
-                                    delay={200}
-                                    style={styles.statCardHalf}
-                                />
-                                <AnimatedStatCard
-                                    icon="bar-chart"
-                                    label="Today's Rides"
-                                    value={STATS.todayRides}
-                                    color={COLORS.secondary}
-                                    glowColor={COLORS.secondaryGlow}
-                                    delay={300}
-                                    style={styles.statCardHalf}
-                                />
-                            </View>
+                            {/* Fleet Stats — removed mock data; fleet overview not available without admin query */}
                         </View>
                     </View>
 
-                    {/* Nearby Parking Spots */}
-                    <View style={styles.sectionHeader}>
+                    {/* Nearby Parking — disabled until hardware provides location data */}
+                    {/* <View style={styles.sectionHeader}>
                         <Text style={styles.sectionTitle}>
                             <Ionicons name="location-outline" size={18} color={COLORS.textPrimary} /> Nearby Parking
                         </Text>
@@ -388,10 +390,10 @@ export default function HomeScreen() {
                                 </TouchableOpacity>
                             );
                         })}
-                    </ScrollView>
+                    </ScrollView> */}
 
                     {/* Pending Fines */}
-                    {user?.pendingFines > 0 && (
+                    {user?.hasFine && (
                         <TouchableOpacity
                             style={styles.finesBanner}
                             activeOpacity={0.7}
@@ -401,8 +403,8 @@ export default function HomeScreen() {
                                 <Ionicons name="alert-circle" size={22} color={COLORS.warning} />
                             </View>
                             <View style={styles.finesInfo}>
-                                <Text style={styles.finesTitle}>You have pending fines</Text>
-                                <Text style={styles.finesAmount}>₹{user.pendingFines} unpaid</Text>
+                                <Text style={styles.finesTitle}>You have a pending fine</Text>
+                                <Text style={styles.finesAmount}>Overtime violation — contact admin</Text>
                             </View>
                             <View style={styles.payBtn}>
                                 <Text style={styles.payBtnText}>View</Text>
@@ -773,6 +775,44 @@ const styles = StyleSheet.create({
         color: COLORS.textSecondary,
         ...FONTS.medium,
         textAlign: 'center',
+    },
+    quickActionDisabled: {
+        opacity: 0.5,
+    },
+
+    // Suspension Banner
+    suspensionBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        borderRadius: SIZES.radiusLG,
+        padding: 14,
+        marginBottom: 20,
+        borderWidth: 1,
+        borderColor: 'rgba(239, 68, 68, 0.3)',
+        gap: 12,
+    },
+    suspensionIconBg: {
+        width: 40,
+        height: 40,
+        borderRadius: 12,
+        backgroundColor: 'rgba(239, 68, 68, 0.15)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    suspensionInfo: {
+        flex: 1,
+    },
+    suspensionTitle: {
+        fontSize: SIZES.md,
+        color: COLORS.danger,
+        ...FONTS.semibold,
+    },
+    suspensionSub: {
+        fontSize: SIZES.xs,
+        color: COLORS.textSecondary,
+        ...FONTS.regular,
+        marginTop: 2,
     },
 
     // Parking Spots

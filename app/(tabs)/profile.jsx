@@ -53,8 +53,8 @@ export default function ProfileScreen() {
         ]).start();
     }, []);
 
-    const handleLogout = () => {
-        logout();
+    const handleLogout = async () => {
+        await logout();
         router.replace('/(auth)/login');
     };
 
@@ -135,12 +135,12 @@ export default function ProfileScreen() {
                                 <MenuItem
                                     icon="warning-outline"
                                     label="Fines & Violations"
-                                    value={user?.pendingFines > 0 ? `₹${user.pendingFines} pending` : '✓ No pending fines'}
+                                    value={user?.hasFine ? 'Fine pending — contact admin' : '✓ No pending fines'}
                                     color={COLORS.warning}
                                     onPress={() => router.push('/(tabs)/history')}
                                 />
                                 <View style={styles.menuDivider} />
-                                <MenuItem icon="bar-chart-outline" label="Usage Stats" value={`${user?.dailyUsage || 0}/60 min today`} color={COLORS.success} />
+                                <MenuItem icon="bar-chart-outline" label="Usage Stats" value={`${user?.dailyUsage?.minutes ?? 0}/60 min today`} color={COLORS.success} />
                             </View>
 
                             <Text style={styles.sectionTitle}>

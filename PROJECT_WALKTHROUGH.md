@@ -121,8 +121,7 @@ CycleSync/
 │   │   ├── bicycles.jsx         # Bicycle management
 │   │   ├── users.jsx            # User management
 │   │   ├── rides.jsx            # Ride monitoring
-│   │   ├── fines.jsx            # Fine management
-│   │   └── qr-codes.jsx         # QR code generation
+│   │   └── fines.jsx            # Fine management
 │   ├── ride/                     # Dynamic routes
 │   │   └── [id].jsx             # Active ride screen
 │   ├── _layout.jsx              # Root layout
@@ -262,14 +261,6 @@ CycleSync/
 - Mark as paid
 - User fine history
 - Total revenue tracking
-
-#### 6. **QR Code Management** ⭐ NEW
-- View all bicycle QR codes
-- Generate visual QR codes
-- Download QR code images
-- Share QR codes
-- Regenerate damaged codes
-- Print all codes (bulk)
 
 ---
 
@@ -450,22 +441,6 @@ Select Fine → View Details:
   - Amount
     ↓
 Mark as Paid
-```
-
-### 6. **Generate QR Codes Flow** ⭐ NEW
-```
-Admin Dashboard → QR Codes Tab
-    ↓
-View All Bicycles with QR Codes
-    ↓
-Select Bicycle → View QR Code Modal
-    ↓
-Actions:
-  - Download QR Code Image
-  - Share QR Code
-  - Regenerate QR Code (if damaged)
-    ↓
-Print All → Generate PDF (coming soon)
 ```
 
 ---

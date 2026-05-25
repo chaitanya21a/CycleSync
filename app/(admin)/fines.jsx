@@ -1,55 +1,74 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
     View, Text, ScrollView, StyleSheet, TouchableOpacity,
-    useWindowDimensions, Animated, Platform,
+    useWindowDimensions, Animated, Platform, ActivityIndicator, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, SIZES } from '../../constants/theme';
+import { getAllStudents, clearStudentFine } from '../../services/firebaseService';
 
 const ADMIN_ACCENT = '#F59E0B';
-
-const STATUS_COLORS = { pending: COLORS.warning, paid: COLORS.success, waived: '#7C3AED' };
-const REASON_ICONS = { overtime: 'time', wrong_parking: 'location-outline', damage: 'alert-circle', out_of_campus: 'navigate' };
-
-const MOCK_FINES = [
-    { id: 'F-001', user: 'Tanya Sharma', email: 'tanya@college.edu', bicycleId: 'CYCLE-045', reason: 'overtime', amount: 50, status: 'pending', date: '2026-02-09T14:40:00' },
-    { id: 'F-002', user: 'Rahul Verma', email: 'rahul@college.edu', bicycleId: 'CYCLE-034', reason: 'overtime', amount: 50, status: 'pending', date: '2026-02-10T10:25:00' },
-    { id: 'F-003', user: 'Vikram Patel', email: 'vikram@college.edu', bicycleId: 'CYCLE-089', reason: 'wrong_parking', amount: 100, status: 'pending', date: '2026-02-09T15:35:00' },
-    { id: 'F-004', user: 'Amit Kumar', email: 'amit@college.edu', bicycleId: 'CYCLE-078', reason: 'wrong_parking', amount: 100, status: 'paid', date: '2026-02-07T16:22:00' },
-    { id: 'F-005', user: 'Anjali Reddy', email: 'anjali@college.edu', bicycleId: 'CYCLE-012', reason: 'overtime', amount: 50, status: 'waived', date: '2026-02-06T12:15:00' },
-    { id: 'F-006', user: 'Rahul Verma', email: 'rahul@college.edu', bicycleId: 'CYCLE-056', reason: 'damage', amount: 200, status: 'pending', date: '2026-02-05T09:30:00' },
-    { id: 'F-007', user: 'Sneha Gupta', email: 'sneha@college.edu', bicycleId: 'CYCLE-023', reason: 'overtime', amount: 50, status: 'paid', date: '2026-02-04T11:00:00' },
-];
+const OVERTIME_FINE_AMOUNT = 50;
 
 export default function AdminFines() {
     const { width } = useWindowDimensions();
     const desktop = width >= 1024;
-    const [filter, setFilter] = useState('all');
-    const [fines, setFines] = useState(MOCK_FINES);
+    const [fines, setFines] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [clearingRfid, setClearingRfid] = useState(null);
     const fadeAnim = useRef(new Animated.Value(0)).current;
+
+    const loadFines = async () => {
+        try {
+            const students = await getAllStudents();
+            const withFines = students
+                .filter((s) => s.hasFine)
+                .map((s) => ({
+                    id: s.rfidUid,
+                    rfidUid: s.rfidUid,
+                    user: s.name || 'Unknown',
+                    email: s.email || '',
+                    reason: 'overtime',
+                    amount: OVERTIME_FINE_AMOUNT,
+                    status: 'pending',
+                    violationCount: s.violationCount ?? 0,
+                }));
+            setFines(withFines);
+        } catch {
+            Alert.alert('Error', 'Failed to load fines from Firebase.');
+            setFines([]);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     useEffect(() => {
         Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+        loadFines();
     }, []);
 
-    const filters = [
-        { key: 'all', label: 'All', count: fines.length },
-        { key: 'pending', label: 'Pending', count: fines.filter(f => f.status === 'pending').length },
-        { key: 'paid', label: 'Paid', count: fines.filter(f => f.status === 'paid').length },
-        { key: 'waived', label: 'Waived', count: fines.filter(f => f.status === 'waived').length },
-    ];
+    const totalPending = fines.reduce((t, f) => t + f.amount, 0);
 
-    const totalPending = fines.filter(f => f.status === 'pending').reduce((t, f) => t + f.amount, 0);
-    const totalCollected = fines.filter(f => f.status === 'paid').reduce((t, f) => t + f.amount, 0);
-    const totalWaived = fines.filter(f => f.status === 'waived').reduce((t, f) => t + f.amount, 0);
-
-    const filtered = fines.filter(f => filter === 'all' || f.status === filter);
-
-    const handleWaive = (fineId) => {
-        setFines(prev => prev.map(f => f.id === fineId ? { ...f, status: 'waived' } : f));
+    const handleWaive = async (fine) => {
+        setClearingRfid(fine.rfidUid);
+        try {
+            await clearStudentFine(fine.rfidUid);
+            setFines((prev) => prev.filter((f) => f.rfidUid !== fine.rfidUid));
+            Alert.alert('Success', `Fine waived for ${fine.user}`);
+        } catch {
+            Alert.alert('Error', 'Failed to waive fine.');
+        } finally {
+            setClearingRfid(null);
+        }
     };
 
-    const formatDate = (d) => new Date(d).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    if (loading) {
+        return (
+            <View style={[styles.container, styles.centered]}>
+                <ActivityIndicator size="large" color={ADMIN_ACCENT} />
+            </View>
+        );
+    }
 
     return (
         <View style={styles.container}>
@@ -59,89 +78,73 @@ export default function AdminFines() {
                         <Text style={styles.headerTitle}>
                             <Ionicons name="cash" size={22} color={ADMIN_ACCENT} /> Fines
                         </Text>
-                        <Text style={styles.headerSub}>{fines.length} total fines recorded</Text>
+                        <Text style={styles.headerSub}>{fines.length} pending fines</Text>
                     </View>
 
-                    {/* Revenue Summary */}
                     <View style={styles.revenueRow}>
                         <View style={[styles.revenueCard, { borderLeftColor: COLORS.warning }]}>
                             <Text style={styles.revenueTitle}>Pending</Text>
                             <Text style={[styles.revenueAmount, { color: COLORS.warning }]}>₹{totalPending}</Text>
                         </View>
-                        <View style={[styles.revenueCard, { borderLeftColor: COLORS.success }]}>
-                            <Text style={styles.revenueTitle}>Collected</Text>
-                            <Text style={[styles.revenueAmount, { color: COLORS.success }]}>₹{totalCollected}</Text>
-                        </View>
-                        <View style={[styles.revenueCard, { borderLeftColor: '#7C3AED' }]}>
-                            <Text style={styles.revenueTitle}>Waived</Text>
-                            <Text style={[styles.revenueAmount, { color: '#7C3AED' }]}>₹{totalWaived}</Text>
+                        <View style={[styles.revenueCard, { borderLeftColor: COLORS.danger }]}>
+                            <Text style={styles.revenueTitle}>Students</Text>
+                            <Text style={[styles.revenueAmount, { color: COLORS.danger }]}>{fines.length}</Text>
                         </View>
                     </View>
 
-                    {/* Filters */}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-                        {filters.map(f => (
-                            <TouchableOpacity
-                                key={f.key}
-                                style={[styles.filterChip, filter === f.key && styles.filterChipActive]}
-                                onPress={() => setFilter(f.key)}
-                            >
-                                <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>{f.label}</Text>
-                                <View style={[styles.filterCount, filter === f.key && styles.filterCountActive]}>
-                                    <Text style={[styles.filterCountText, filter === f.key && styles.filterCountTextActive]}>{f.count}</Text>
-                                </View>
-                            </TouchableOpacity>
-                        ))}
-                    </ScrollView>
-
-                    {/* Fine Cards */}
-                    <View style={[styles.grid, desktop && styles.gridDesktop]}>
-                        {filtered.map((f) => (
-                            <View key={f.id} style={styles.fineCard}>
-                                <View style={styles.fineHeader}>
-                                    <View style={styles.fineUserRow}>
-                                        <View style={[styles.reasonIcon, { backgroundColor: `${STATUS_COLORS[f.status]}15` }]}>
-                                            <Ionicons name={REASON_ICONS[f.reason] || 'alert-circle'} size={16} color={STATUS_COLORS[f.status]} />
+                    {fines.length === 0 ? (
+                        <Text style={styles.emptyText}>No pending fines.</Text>
+                    ) : (
+                        <View style={[styles.grid, desktop && styles.gridDesktop]}>
+                            {fines.map((f) => (
+                                <View key={f.id} style={styles.fineCard}>
+                                    <View style={styles.fineHeader}>
+                                        <View style={styles.fineUserRow}>
+                                            <View style={[styles.reasonIcon, { backgroundColor: COLORS.warningGlow }]}>
+                                                <Ionicons name="time" size={16} color={COLORS.warning} />
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.fineUser}>{f.user}</Text>
+                                                <Text style={styles.fineEmail}>{f.email}</Text>
+                                            </View>
+                                            <Text style={[styles.fineAmount, { color: COLORS.warning }]}>₹{f.amount}</Text>
                                         </View>
-                                        <View style={{ flex: 1 }}>
-                                            <Text style={styles.fineUser}>{f.user}</Text>
-                                            <Text style={styles.fineEmail}>{f.email}</Text>
+                                    </View>
+
+                                    <View style={styles.fineDetails}>
+                                        <View style={styles.fineDetail}>
+                                            <Ionicons name="card-outline" size={13} color={COLORS.textMuted} />
+                                            <Text style={styles.fineDetailText}>RFID: {f.rfidUid}</Text>
                                         </View>
-                                        <Text style={[styles.fineAmount, { color: STATUS_COLORS[f.status] }]}>₹{f.amount}</Text>
+                                        <View style={styles.fineDetail}>
+                                            <Ionicons name="information-circle-outline" size={13} color={COLORS.textMuted} />
+                                            <Text style={styles.fineDetailText}>Overtime (&gt;20 min)</Text>
+                                        </View>
+                                        <View style={styles.fineDetail}>
+                                            <Ionicons name="alert-circle-outline" size={13} color={COLORS.textMuted} />
+                                            <Text style={styles.fineDetailText}>{f.violationCount} violations</Text>
+                                        </View>
                                     </View>
-                                </View>
 
-                                <View style={styles.fineDetails}>
-                                    <View style={styles.fineDetail}>
-                                        <Ionicons name="bicycle-outline" size={13} color={COLORS.textMuted} />
-                                        <Text style={styles.fineDetailText}>{f.bicycleId}</Text>
-                                    </View>
-                                    <View style={styles.fineDetail}>
-                                        <Ionicons name="information-circle-outline" size={13} color={COLORS.textMuted} />
-                                        <Text style={styles.fineDetailText}>{f.reason.replace('_', ' ')}</Text>
-                                    </View>
-                                    <View style={styles.fineDetail}>
-                                        <Ionicons name="calendar-outline" size={13} color={COLORS.textMuted} />
-                                        <Text style={styles.fineDetailText}>{formatDate(f.date)}</Text>
-                                    </View>
-                                </View>
-
-                                <View style={styles.fineFooter}>
-                                    <View style={[styles.statusBadge, { backgroundColor: `${STATUS_COLORS[f.status]}20` }]}>
-                                        <Text style={[styles.statusText, { color: STATUS_COLORS[f.status] }]}>
-                                            {f.status}
-                                        </Text>
-                                    </View>
-                                    {f.status === 'pending' && (
-                                        <TouchableOpacity style={styles.waiveBtn} onPress={() => handleWaive(f.id)}>
+                                    <View style={styles.fineFooter}>
+                                        <View style={[styles.statusBadge, { backgroundColor: COLORS.warningGlow }]}>
+                                            <Text style={[styles.statusText, { color: COLORS.warning }]}>pending</Text>
+                                        </View>
+                                        <TouchableOpacity
+                                            style={styles.waiveBtn}
+                                            onPress={() => handleWaive(f)}
+                                            disabled={clearingRfid === f.rfidUid}
+                                        >
                                             <Ionicons name="close-circle-outline" size={14} color="#7C3AED" />
-                                            <Text style={styles.waiveBtnText}>Waive</Text>
+                                            <Text style={styles.waiveBtnText}>
+                                                {clearingRfid === f.rfidUid ? 'Waiving...' : 'Waive'}
+                                            </Text>
                                         </TouchableOpacity>
-                                    )}
+                                    </View>
                                 </View>
-                            </View>
-                        ))}
-                    </View>
+                            ))}
+                        </View>
+                    )}
                 </Animated.View>
             </ScrollView>
         </View>
@@ -150,6 +153,7 @@ export default function AdminFines() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: COLORS.bgPrimary },
+    centered: { justifyContent: 'center', alignItems: 'center' },
     scroll: { padding: SIZES.paddingXL },
     scrollDesktop: { maxWidth: 960, alignSelf: 'center', width: '100%' },
     header: { marginBottom: 20 },
@@ -162,19 +166,7 @@ const styles = StyleSheet.create({
     },
     revenueTitle: { fontSize: 11, color: COLORS.textMuted, ...FONTS.medium, marginBottom: 4 },
     revenueAmount: { fontSize: 20, ...FONTS.bold },
-    filterScroll: { marginBottom: 20, flexDirection: 'row' },
-    filterChip: {
-        flexDirection: 'row', alignItems: 'center', gap: 6,
-        paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20,
-        backgroundColor: COLORS.bgCard, borderWidth: 1, borderColor: COLORS.border, marginRight: 8,
-    },
-    filterChipActive: { backgroundColor: 'rgba(245,158,11,0.15)', borderColor: 'rgba(245,158,11,0.3)' },
-    filterText: { fontSize: 13, color: COLORS.textSecondary, ...FONTS.medium },
-    filterTextActive: { color: ADMIN_ACCENT },
-    filterCount: { backgroundColor: COLORS.bgSecondary, paddingHorizontal: 7, paddingVertical: 1, borderRadius: 10 },
-    filterCountActive: { backgroundColor: 'rgba(245,158,11,0.25)' },
-    filterCountText: { fontSize: 11, color: COLORS.textMuted, ...FONTS.semibold },
-    filterCountTextActive: { color: ADMIN_ACCENT },
+    emptyText: { textAlign: 'center', color: COLORS.textMuted, fontSize: 14, marginTop: 24 },
     grid: { gap: 10 },
     gridDesktop: { flexDirection: 'row', flexWrap: 'wrap', gap: 14 },
     fineCard: {
@@ -190,7 +182,7 @@ const styles = StyleSheet.create({
     fineAmount: { fontSize: 18, ...FONTS.bold },
     fineDetails: { gap: 6, marginBottom: 12 },
     fineDetail: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    fineDetailText: { fontSize: 12, color: COLORS.textSecondary, textTransform: 'capitalize' },
+    fineDetailText: { fontSize: 12, color: COLORS.textSecondary },
     fineFooter: {
         flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
         borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 10,

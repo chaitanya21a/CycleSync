@@ -74,17 +74,7 @@ export default function AdminLayout() {
                     ),
                 }}
             />
-            <Tabs.Screen
-                name="qr-codes"
-                options={{
-                    title: 'QR Codes',
-                    tabBarIcon: ({ color, focused }) => (
-                        <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>
-                            <Ionicons name={focused ? 'qr-code' : 'qr-code-outline'} size={desktop ? 24 : 22} color={color} />
-                        </View>
-                    ),
-                }}
-            />
+
         </Tabs>
     );
 }

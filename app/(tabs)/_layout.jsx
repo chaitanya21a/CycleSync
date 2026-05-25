@@ -30,9 +30,11 @@ export default function TabLayout() {
                     ),
                 }}
             />
+            {/* Scan tab hidden until hardware (ESP32) provides location + session data in Firebase */}
             <Tabs.Screen
                 name="scan"
                 options={{
+                    href: null,
                     title: 'Scan',
                     tabBarIcon: ({ color, focused }) => (
                         <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>
@@ -41,9 +43,11 @@ export default function TabLayout() {
                     ),
                 }}
             />
+            {/* Spots/map tab hidden until hardware provides location data */}
             <Tabs.Screen
                 name="map"
                 options={{
+                    href: null,
                     title: 'Spots',
                     tabBarIcon: ({ color, focused }) => (
                         <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>

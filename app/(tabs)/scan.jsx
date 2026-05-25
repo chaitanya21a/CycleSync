@@ -17,12 +17,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { COLORS, FONTS, SIZES, SHADOWS } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
-import { BICYCLES } from '../../constants/mockData';
+import { getActiveSession } from '../../services/firebaseService';
 
 export default function ScanScreen() {
     const router = useRouter();
     const { width } = useWindowDimensions();
-    const { user, activeRide, startRide } = useAuth();
+    const { user } = useAuth();
     const [manualCode, setManualCode] = useState('');
     const [showManual, setShowManual] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -30,6 +30,8 @@ export default function ScanScreen() {
     const [permission, requestPermission] = useCameraPermissions();
     const [scanned, setScanned] = useState(false);
     const [showCamera, setShowCamera] = useState(false);
+    const [activeSession, setActiveSession] = useState(null);
+    const [isSuspended, setIsSuspended] = useState(false);
 
     const desktop = width >= 1024;
     const tablet = width >= 768;
@@ -58,6 +60,14 @@ export default function ScanScreen() {
         }
     }, []);
 
+    // Load active session and check suspension status
+    useEffect(() => {
+        if (user?.rfidUid) {
+            getActiveSession(user.rfidUid).then(setActiveSession).catch(() => {});
+        }
+        setIsSuspended(user?.isBanned || user?.isAllowed === false);
+    }, [user?.rfidUid, user?.isBanned, user?.isAllowed]);
+
     const requestCameraPermission = async () => {
         if (!permission) return;
         
@@ -81,6 +91,8 @@ export default function ScanScreen() {
     };
 
     const toggleCamera = async () => {
+        if (isSuspended) return;
+
         if (Platform.OS === 'web') {
             Alert.alert('Camera Not Available', 'Camera scanning is only available on mobile devices. Please use manual entry.');
             return;
@@ -112,45 +124,31 @@ export default function ScanScreen() {
         setIsProcessing(true);
         setScanResult(null);
 
-        if (activeRide) {
+        if (activeSession) {
             setScanResult({ type: 'error', message: 'You already have an active ride. End it first before starting a new one.' });
             setIsProcessing(false);
             return;
         }
 
-        if (user && user.dailyUsage >= user.maxDailyUsage) {
+        if (isSuspended) {
+            setScanResult({ type: 'error', message: 'Your account has been suspended. Contact admin.' });
+            setIsProcessing(false);
+            return;
+        }
+
+        if (user && (user.dailyUsage?.minutes || 0) >= 60) {
             setScanResult({ type: 'error', message: 'Daily limit reached (60 min). Come back tomorrow!' });
             setIsProcessing(false);
             return;
         }
 
-        const bicycle = BICYCLES.find((b) => b.qrCode === code || b.id === code);
-
-        if (!bicycle) {
-            setScanResult({ type: 'error', message: `No bicycle found for code "${code}". Check and try again.` });
-            setIsProcessing(false);
-            return;
-        }
-
-        if (bicycle.status !== 'available') {
-            setScanResult({
-                type: 'error',
-                message: `${bicycle.id} is currently ${bicycle.status.replace('_', ' ')}. Try another bicycle.`,
-            });
-            setIsProcessing(false);
-            return;
-        }
-
-        const ride = startRide(bicycle.id);
         setScanResult({
             type: 'success',
-            message: `🔓 ${bicycle.id} Unlocked! Starting your ride...`,
-            ride,
-            bicycle,
+            message: `🔓 Bicycle scanned! Starting your ride...`,
         });
 
         setTimeout(() => {
-            router.push(`/ride/${ride.id}`);
+            router.push(`/ride/${code}`);
         }, 2000);
     };
 
@@ -179,6 +177,14 @@ export default function ScanScreen() {
                                 <Text style={styles.subtitle}>Scan the QR on any available bicycle to unlock it</Text>
                             </View>
                         </View>
+
+                        {/* Suspension Banner */}
+                        {isSuspended && (
+                            <View style={styles.suspensionBanner}>
+                                <Ionicons name="ban" size={20} color={COLORS.danger} />
+                                <Text style={styles.suspensionText}>Your account has been suspended. Contact admin to restore access.</Text>
+                            </View>
+                        )}
 
                         {/* Desktop: two column layout */}
                         <View style={[tablet && styles.twoCol]}>
@@ -223,10 +229,14 @@ export default function ScanScreen() {
                                                 <Ionicons name="qr-code" size={52} color={COLORS.primary} />
                                             </View>
                                             <Text style={styles.scanText}>
-                                                {Platform.OS === 'web' ? 'Use manual entry or tap a bike below' : 'Tap button below to scan'}
+                                                {Platform.OS === 'web' ? 'Use manual entry below' : 'Tap button below to scan'}
                                             </Text>
                                             {Platform.OS !== 'web' && (
-                                                <TouchableOpacity style={styles.scanButton} onPress={toggleCamera}>
+                                                <TouchableOpacity
+                                                    style={[styles.scanButton, isSuspended && { opacity: 0.4 }]}
+                                                    onPress={toggleCamera}
+                                                    disabled={isSuspended}
+                                                >
                                                     <Ionicons name="camera" size={20} color="#fff" />
                                                     <Text style={styles.scanButtonText}>Open Camera</Text>
                                                 </TouchableOpacity>
@@ -299,44 +309,18 @@ export default function ScanScreen() {
                                                 onSubmitEditing={handleManualSubmit}
                                             />
                                             <TouchableOpacity
-                                                style={[styles.manualSubmitBtn, !manualCode.trim() && { opacity: 0.5 }]}
+                                                style={[
+                                                    styles.manualSubmitBtn,
+                                                    (!manualCode.trim() || isSuspended) && { opacity: 0.5 },
+                                                ]}
                                                 onPress={handleManualSubmit}
                                                 activeOpacity={0.7}
-                                                disabled={!manualCode.trim()}
+                                                disabled={!manualCode.trim() || isSuspended}
                                             >
                                                 <Ionicons name="arrow-forward" size={20} color="#fff" />
                                             </TouchableOpacity>
                                         </View>
                                     )}
-                                </View>
-
-                                {/* Quick Select */}
-                                <View style={styles.quickSelect}>
-                                    <View style={styles.quickSelectHeader}>
-                                        <Ionicons name="bicycle-outline" size={18} color={COLORS.success} />
-                                        <Text style={styles.quickSelectTitle}>Available Nearby</Text>
-                                        <View style={styles.countBadge}>
-                                            <Text style={styles.countBadgeText}>
-                                                {BICYCLES.filter((b) => b.status === 'available').length}
-                                            </Text>
-                                        </View>
-                                    </View>
-                                    <View style={styles.quickSelectGrid}>
-                                        {BICYCLES.filter((b) => b.status === 'available')
-                                            .slice(0, desktop ? 8 : 6)
-                                            .map((bike, i) => (
-                                                <TouchableOpacity
-                                                    key={bike.id}
-                                                    style={styles.quickBikeBtn}
-                                                    onPress={() => handleScan(bike.id)}
-                                                    activeOpacity={0.7}
-                                                >
-                                                    <Ionicons name="bicycle" size={16} color={COLORS.success} />
-                                                    <Text style={styles.quickBikeId}>{bike.id.replace('CYCLE-', '#')}</Text>
-                                                    <Text style={styles.quickBikeSpot} numberOfLines={1}>{bike.nearestSpot}</Text>
-                                                </TouchableOpacity>
-                                            ))}
-                                    </View>
                                 </View>
 
                                 {/* Usage info card */}
@@ -406,6 +390,25 @@ const styles = StyleSheet.create({
         color: COLORS.textSecondary,
         ...FONTS.regular,
         marginTop: 2,
+    },
+
+    // Suspension Banner
+    suspensionBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        backgroundColor: COLORS.dangerGlow,
+        borderRadius: SIZES.radius,
+        padding: 14,
+        marginBottom: 16,
+        borderWidth: 1,
+        borderColor: 'rgba(239,68,68,0.3)',
+    },
+    suspensionText: {
+        color: COLORS.danger,
+        fontSize: SIZES.sm,
+        ...FONTS.medium,
+        flex: 1,
     },
 
     twoCol: {
@@ -606,69 +609,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
         ...SHADOWS.button,
-    },
-
-    // Quick Select
-    quickSelect: {
-        backgroundColor: COLORS.bgCard,
-        borderRadius: SIZES.radiusLG,
-        padding: 16,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        marginBottom: 16,
-    },
-    quickSelectHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        marginBottom: 14,
-    },
-    quickSelectTitle: {
-        fontSize: SIZES.md,
-        color: COLORS.textPrimary,
-        ...FONTS.semibold,
-        flex: 1,
-    },
-    countBadge: {
-        backgroundColor: COLORS.successGlow,
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: SIZES.radiusFull,
-        borderWidth: 1,
-        borderColor: 'rgba(16, 185, 129, 0.3)',
-    },
-    countBadgeText: {
-        fontSize: 11,
-        color: COLORS.success,
-        ...FONTS.bold,
-    },
-    quickSelectGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 8,
-    },
-    quickBikeBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        backgroundColor: COLORS.bgInput,
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        borderRadius: SIZES.radiusSM,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        ...(Platform.OS === 'web' ? { cursor: 'pointer', transition: 'border-color 0.15s' } : {}),
-    },
-    quickBikeId: {
-        fontSize: SIZES.sm,
-        color: COLORS.textPrimary,
-        ...FONTS.semibold,
-    },
-    quickBikeSpot: {
-        fontSize: 10,
-        color: COLORS.textMuted,
-        ...FONTS.regular,
-        maxWidth: 70,
     },
 
     // Info Card

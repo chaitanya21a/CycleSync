@@ -8,11 +8,12 @@ import {
     Alert,
     ScrollView,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { COLORS, FONTS, SIZES, SHADOWS } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
+import { getActiveSession, endRideSession } from '../../services/firebaseService';
 import { PARKING_SPOTS } from '../../constants/mockData';
 import { responsive, getContainerStyle } from '../../constants/responsive';
 
@@ -20,11 +21,13 @@ const MAX_RIDE_MINUTES = 20;
 
 export default function ActiveRideScreen() {
     const router = useRouter();
-    const { activeRide, endRide } = useAuth();
+    const { id: rideCode } = useLocalSearchParams();
+    const { user } = useAuth();
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [selectedSpot, setSelectedSpot] = useState(null);
     const [rideEnded, setRideEnded] = useState(false);
     const [currentLocation, setCurrentLocation] = useState(null);
+    const [sessionId, setSessionId] = useState(null);
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
     const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -53,6 +56,21 @@ export default function ActiveRideScreen() {
             if (timerRef.current) clearInterval(timerRef.current);
         };
     }, []);
+
+    // Restore session state if app was backgrounded
+    useEffect(() => {
+        if (!user?.rfidUid) return;
+        (async () => {
+            try {
+                const result = await getActiveSession(user.rfidUid);
+                if (result?.sessionId) {
+                    setSessionId(result.sessionId);
+                }
+            } catch (error) {
+                console.error('Failed to restore active session:', error);
+            }
+        })();
+    }, [user?.rfidUid]);
 
     const requestLocationPermission = async () => {
         try {
@@ -115,11 +133,40 @@ export default function ActiveRideScreen() {
         confirmEndRide(selectedSpot);
     };
 
-    const confirmEndRide = (spot) => {
+    const confirmEndRide = async (spot) => {
         if (timerRef.current) clearInterval(timerRef.current);
-        
-        // Pass location data when ending ride
-        endRide(spot, currentLocation);
+
+        if (!user?.rfidUid || !sessionId) {
+            Alert.alert(
+                'No Active Session',
+                'Could not find your ride session in Firebase. If you just scanned, wait for the hardware to register the session, then try again.',
+                [{ text: 'OK' }]
+            );
+            timerRef.current = setInterval(() => {
+                setElapsedSeconds((prev) => prev + 1);
+            }, 1000);
+            return;
+        }
+
+        const endTime = new Date().toISOString().replace('T', ' ').slice(0, 19);
+        const durationMinutes = Math.round(elapsedSeconds / 60);
+
+        try {
+            await endRideSession(user.rfidUid, sessionId, endTime, durationMinutes);
+        } catch (error) {
+            console.error('Failed to end ride session:', error);
+            Alert.alert(
+                'Error',
+                'Failed to end your ride. Please try again.',
+                [{ text: 'OK' }]
+            );
+            // Restart timer so the ride is still tracked
+            timerRef.current = setInterval(() => {
+                setElapsedSeconds((prev) => prev + 1);
+            }, 1000);
+            return;
+        }
+
         setRideEnded(true);
 
         setTimeout(() => {
@@ -179,7 +226,7 @@ export default function ActiveRideScreen() {
                     {/* Bicycle Info */}
                     <View style={styles.bikeInfo}>
                         <Ionicons name="bicycle" size={24} color={COLORS.primary} />
-                        <Text style={styles.bikeId}>{activeRide?.bicycleId || 'CYCLE-???'}</Text>
+                        <Text style={styles.bikeId}>{rideCode || 'BICYCLE'}</Text>
                         <View style={styles.unlockBadge}>
                             <Ionicons name="lock-open" size={12} color={COLORS.success} />
                             <Text style={styles.unlockText}>Unlocked</Text>

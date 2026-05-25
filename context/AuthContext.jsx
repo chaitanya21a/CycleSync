@@ -1,139 +1,98 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { USER_PROFILE } from '../constants/mockData';
-import api from '../services/api';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+} from 'firebase/auth';
+import { ref, set } from 'firebase/database';
+import { auth, db } from '../services/firebaseConfig';
+import {
+  getStudentByEmail,
+  checkAndResetDailyUsage,
+  setStudentRole,
+} from '../services/firebaseService';
+import { getFriendlyAuthError } from '../services/authErrors';
 
 const AuthContext = createContext({});
 
+/** Admin if email contains "admin" or DB profile has role "admin". */
+export function resolveRole(email, profileRole) {
+  const normalized = (email || '').toLowerCase();
+  if (profileRole === 'admin' || normalized.includes('admin')) return 'admin';
+  return 'user';
+}
+
 export function AuthProvider({ children }) {
-    const [user, setUser] = useState(null);
-    const [isLoading, setIsLoading] = useState(true);
-    const [activeRide, setActiveRide] = useState(null);
+  const [user, setUser]         = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        // Simulate checking for stored auth token
-        setTimeout(() => {
-            setIsLoading(false);
-        }, 1500);
-    }, []);
-
-    const login = async (email, password) => {
-        try {
-            const response = await api.login(email, password);
-            api.setToken(response.token);
-            setUser(response.user);
-            return { success: true, role: response.user.role };
-        } catch (error) {
-            // Fallback keeps current demo behavior if API is unreachable.
-            return new Promise((resolve, reject) => {
-                setTimeout(() => {
-                    if (email && password) {
-                        const isAdminUser = email.toLowerCase().includes('admin');
-                        const userData = {
-                            ...USER_PROFILE,
-                            email,
-                            role: isAdminUser ? 'admin' : 'user',
-                            name: isAdminUser ? 'Admin' : USER_PROFILE.name,
-                        };
-                        setUser(userData);
-                        resolve({ success: true, role: userData.role });
-                    } else {
-                        reject(new Error('Invalid credentials'));
-                    }
-                }, 1000);
-            });
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        const result = await getStudentByEmail(firebaseUser.email);
+        if (result) {
+          const { rfidUid, student } = result;
+          const dailyUsage = await checkAndResetDailyUsage(rfidUid, student.dailyUsage);
+          const role = resolveRole(firebaseUser.email, student.role);
+          if (role === 'admin' && student.role !== 'admin') {
+            await setStudentRole(rfidUid, 'admin');
+          }
+          setUser({ ...student, rfidUid, dailyUsage, firebaseUid: firebaseUser.uid, role });
+        } else {
+          const role = resolveRole(firebaseUser.email);
+          setUser({ email: firebaseUser.email, firebaseUid: firebaseUser.uid, role });
         }
-    };
-
-    const loginWithRfid = async (tagUid) => {
-        if (!tagUid) {
-            throw new Error('RFID tag UID is required');
-        }
-        try {
-            const response = await api.loginWithRfid(tagUid);
-            api.setToken(response.token);
-            setUser(response.user);
-            return { success: true, role: response.user.role };
-        } catch (error) {
-            throw new Error(error.message || 'RFID authentication failed');
-        }
-    };
-
-    const signup = async (userData) => {
-        // Mock signup
-        return new Promise((resolve, reject) => {
-            setTimeout(() => {
-                const emailDomain = userData.email.split('@')[1];
-                if (!emailDomain || !emailDomain.endsWith('.edu') && !emailDomain.endsWith('.ac.in')) {
-                    reject(new Error('Please use your college email address'));
-                    return;
-                }
-                setUser({
-                    ...USER_PROFILE,
-                    ...userData,
-                    totalRides: 0,
-                    totalFines: 0,
-                    pendingFines: 0,
-                    dailyUsage: 0,
-                });
-                resolve({ success: true });
-            }, 1000);
-        });
-    };
-
-    const logout = () => {
+      } else {
         setUser(null);
-        setActiveRide(null);
-    };
+      }
+      setIsLoading(false);
+    });
+    return unsubscribe;
+  }, []);
 
-    const startRide = (bicycleId) => {
-        const ride = {
-            id: `R-${Date.now()}`,
-            bicycleId,
-            startTime: new Date().toISOString(),
-            duration: 0,
-            status: 'active',
-        };
-        setActiveRide(ride);
-        return ride;
-    };
+  const signup = async ({ name, email, studentId, phone, password }) => {
+    const domain = email.split('@')[1] ?? '';
+    if (!domain.endsWith('.edu') && !domain.endsWith('.ac.in')) {
+      throw new Error('Please use your college email address');
+    }
+    try {
+      const { user: firebaseUser } = await createUserWithEmailAndPassword(auth, email, password);
+      const profile = {
+        name, email, studentId, phone,
+        role: resolveRole(email),
+        isAllowed: true,
+        hasFine: false,
+        totalRides: 0,
+        violationCount: 0,
+        isBanned: false,
+        dailyUsage: { date: '', minutes: 0 },
+      };
+      await set(ref(db, `students/${firebaseUser.uid}`), profile);
+    } catch (error) {
+      throw new Error(getFriendlyAuthError(error));
+    }
+  };
 
-    const endRide = (endLocation, locationData) => {
-        if (activeRide) {
-            const endTime = new Date();
-            const startTime = new Date(activeRide.startTime);
-            const duration = Math.round((endTime - startTime) / 60000);
-            const completedRide = {
-                ...activeRide,
-                endTime: endTime.toISOString(),
-                endLocation,
-                duration,
-                status: 'completed',
-                location: locationData || null,
-            };
-            setActiveRide(null);
-            return completedRide;
-        }
-        return null;
-    };
+  const login = async (email, password) => {
+    try {
+      const { user: firebaseUser } = await signInWithEmailAndPassword(auth, email, password);
+      const role = resolveRole(firebaseUser.email);
+      return { role };
+    } catch (error) {
+      throw new Error(getFriendlyAuthError(error));
+    }
+  };
 
-    return (
-        <AuthContext.Provider
-            value={{
-                user,
-                isLoading,
-                activeRide,
-                login,
-                loginWithRfid,
-                signup,
-                logout,
-                startRide,
-                endRide,
-                setUser,
-            }}
-        >
-            {children}
-        </AuthContext.Provider>
-    );
+  const logout = async () => {
+    await signOut(auth);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, isLoading, login, signup, logout, setUser }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export const useAuth = () => useContext(AuthContext);

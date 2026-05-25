@@ -8,10 +8,13 @@ import {
     Animated,
     Platform,
     useWindowDimensions,
+    ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, SIZES } from '../../constants/theme';
-import { RIDE_HISTORY } from '../../constants/mockData';
+import { useAuth } from '../../context/AuthContext';
+import { getRideHistory, getStudentByEmail, checkAndResetDailyUsage } from '../../services/firebaseService';
+import { seedMockRideData } from '../../services/seedMockRides';
 
 const FINE_REASONS = {
     wrong_parking: { label: 'Wrong Parking', icon: 'location-outline', color: COLORS.danger },
@@ -31,7 +34,9 @@ function RideCard({ ride, index }) {
         ]).start();
     }, []);
 
-    const startDate = new Date(ride.startTime);
+    const startDate = new Date(
+        typeof ride.startTime === 'string' ? ride.startTime.replace(' ', 'T') : ride.startTime
+    );
     const formatDate = (date) => {
         const today = new Date();
         const diff = Math.floor((today - date) / 86400000);
@@ -40,7 +45,14 @@ function RideCard({ ride, index }) {
         return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
     };
     const formatTime = (date) => date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-    const fineInfo = ride.fine ? FINE_REASONS[ride.fine.reason] : null;
+
+    // Map Firebase session fields to display values
+    const displayId = ride.bicycleId || ride.sessionId || 'Session';
+    const displayDuration = ride.durationMinutes ?? ride.duration ?? 0;
+    const displayStart = ride.startLocation || '—';
+    const displayEnd = ride.endLocation || '—';
+    const fine = ride.fine ?? null;
+    const fineInfo = fine ? FINE_REASONS[fine.reason] : null;
 
     return (
         <Animated.View style={[styles.rideCard, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
@@ -50,16 +62,16 @@ function RideCard({ ride, index }) {
                         <Ionicons name="bicycle" size={18} color={COLORS.primary} />
                     </View>
                     <View>
-                        <Text style={styles.rideId}>{ride.bicycleId}</Text>
+                        <Text style={styles.rideId}>{displayId}</Text>
                         <View style={styles.rideDateRow}>
                             <Ionicons name="calendar-outline" size={10} color={COLORS.textMuted} />
                             <Text style={styles.rideDate}>{formatDate(startDate)} at {formatTime(startDate)}</Text>
                         </View>
                     </View>
                 </View>
-                <View style={[styles.durationBadge, ride.duration > 20 && styles.durationBadgeWarning]}>
-                    <Ionicons name="time-outline" size={13} color={ride.duration > 20 ? COLORS.warning : COLORS.textSecondary} />
-                    <Text style={[styles.durationText, ride.duration > 20 && { color: COLORS.warning }]}>{ride.duration} min</Text>
+                <View style={[styles.durationBadge, displayDuration > 20 && styles.durationBadgeWarning]}>
+                    <Ionicons name="time-outline" size={13} color={displayDuration > 20 ? COLORS.warning : COLORS.textSecondary} />
+                    <Text style={[styles.durationText, displayDuration > 20 && { color: COLORS.warning }]}>{displayDuration} min</Text>
                 </View>
             </View>
 
@@ -72,16 +84,16 @@ function RideCard({ ride, index }) {
                 <View style={styles.routeLabels}>
                     <View style={styles.routeRow}>
                         <Ionicons name="ellipse" size={6} color={COLORS.success} />
-                        <Text style={styles.routeText}>{ride.startLocation}</Text>
+                        <Text style={styles.routeText}>{displayStart}</Text>
                     </View>
                     <View style={styles.routeRow}>
                         <Ionicons name="flag" size={6} color={COLORS.primary} />
-                        <Text style={styles.routeText}>{ride.endLocation}</Text>
+                        <Text style={styles.routeText}>{displayEnd}</Text>
                     </View>
                 </View>
             </View>
 
-            {ride.fine && fineInfo && (
+            {fine && fineInfo && (
                 <View style={styles.fineContainer}>
                     <View style={styles.fineLeft}>
                         <View style={[styles.fineIconBg, { backgroundColor: fineInfo.color + '18' }]}>
@@ -89,13 +101,13 @@ function RideCard({ ride, index }) {
                         </View>
                         <View>
                             <Text style={[styles.fineReason, { color: fineInfo.color }]}>{fineInfo.label}</Text>
-                            <Text style={styles.fineAmount}>₹{ride.fine.amount}</Text>
+                            <Text style={styles.fineAmount}>₹{fine.amount}</Text>
                         </View>
                     </View>
-                    <View style={[styles.fineStatusBadge, ride.fine.status === 'paid' ? styles.fineStatusPaid : styles.fineStatusPending]}>
-                        <Ionicons name={ride.fine.status === 'paid' ? 'checkmark-circle' : 'alert-circle'} size={12} color={ride.fine.status === 'paid' ? COLORS.success : COLORS.warning} />
-                        <Text style={[styles.fineStatusText, { color: ride.fine.status === 'paid' ? COLORS.success : COLORS.warning }]}>
-                            {ride.fine.status === 'paid' ? 'Paid' : 'Pending'}
+                    <View style={[styles.fineStatusBadge, fine.status === 'paid' ? styles.fineStatusPaid : styles.fineStatusPending]}>
+                        <Ionicons name={fine.status === 'paid' ? 'checkmark-circle' : 'alert-circle'} size={12} color={fine.status === 'paid' ? COLORS.success : COLORS.warning} />
+                        <Text style={[styles.fineStatusText, { color: fine.status === 'paid' ? COLORS.success : COLORS.warning }]}>
+                            {fine.status === 'paid' ? 'Paid' : 'Pending'}
                         </Text>
                     </View>
                 </View>
@@ -106,8 +118,46 @@ function RideCard({ ride, index }) {
 
 export default function HistoryScreen() {
     const { width } = useWindowDimensions();
+    const { user, setUser } = useAuth();
     const [filter, setFilter] = useState('all');
+    const [rides, setRides] = useState([]);
+    const [loadingRides, setLoadingRides] = useState(true);
     const desktop = width >= 1024;
+
+    useEffect(() => {
+        if (!user?.rfidUid) {
+            setLoadingRides(false);
+            return;
+        }
+
+        (async () => {
+            try {
+                let data = await getRideHistory(user.rfidUid);
+                if (data.length === 0) {
+                    await seedMockRideData(user.rfidUid);
+                    data = await getRideHistory(user.rfidUid);
+                    if (user.email && setUser) {
+                        const refreshed = await getStudentByEmail(user.email);
+                        if (refreshed) {
+                            const { rfidUid, student } = refreshed;
+                            const dailyUsage = await checkAndResetDailyUsage(rfidUid, student.dailyUsage);
+                            setUser({
+                                ...student,
+                                rfidUid,
+                                dailyUsage,
+                                firebaseUid: user.firebaseUid,
+                            });
+                        }
+                    }
+                }
+                setRides(data);
+            } catch {
+                setRides([]);
+            } finally {
+                setLoadingRides(false);
+            }
+        })();
+    }, [user?.rfidUid]);
 
     const filters = [
         { id: 'all', label: 'All Rides', icon: 'list-outline' },
@@ -115,15 +165,16 @@ export default function HistoryScreen() {
         { id: 'clean', label: 'No Fines', icon: 'checkmark-circle-outline' },
     ];
 
-    const filteredRides = RIDE_HISTORY.filter((ride) => {
-        if (filter === 'fines') return ride.fine !== null;
-        if (filter === 'clean') return ride.fine === null;
+    const isOvertimeRide = (ride) => (ride.durationMinutes ?? ride.duration ?? 0) > 20;
+
+    const filteredRides = rides.filter((ride) => {
+        if (filter === 'fines') return isOvertimeRide(ride);
+        if (filter === 'clean') return !isOvertimeRide(ride);
         return true;
     });
 
-    const totalFines = RIDE_HISTORY.reduce((sum, r) => sum + (r.fine ? r.fine.amount : 0), 0);
-    const pendingFines = RIDE_HISTORY.reduce((sum, r) => sum + (r.fine && r.fine.status === 'pending' ? r.fine.amount : 0), 0);
-    const paidFines = totalFines - pendingFines;
+    const overtimeRides = rides.filter(isOvertimeRide).length;
+    const pendingFineAmount = user?.hasFine ? 50 : 0;
 
     return (
         <View style={styles.container}>
@@ -145,29 +196,29 @@ export default function HistoryScreen() {
                             <View style={[styles.statIconSmall, { backgroundColor: COLORS.primaryGlow }]}>
                                 <Ionicons name="bicycle" size={18} color={COLORS.primary} />
                             </View>
-                            <Text style={styles.histStatValue}>{RIDE_HISTORY.length}</Text>
+                            <Text style={styles.histStatValue}>{rides.length}</Text>
                             <Text style={styles.histStatLabel}>Total Rides</Text>
                         </View>
                         <View style={styles.histStatCard}>
                             <View style={[styles.statIconSmall, { backgroundColor: COLORS.warningGlow }]}>
                                 <Ionicons name="receipt" size={18} color={COLORS.warning} />
                             </View>
-                            <Text style={styles.histStatValue}>₹{totalFines}</Text>
-                            <Text style={styles.histStatLabel}>Total Fines</Text>
+                            <Text style={styles.histStatValue}>{overtimeRides}</Text>
+                            <Text style={styles.histStatLabel}>Overtime Rides</Text>
                         </View>
                         <View style={styles.histStatCard}>
                             <View style={[styles.statIconSmall, { backgroundColor: COLORS.dangerGlow }]}>
                                 <Ionicons name="alert-circle" size={18} color={COLORS.danger} />
                             </View>
-                            <Text style={styles.histStatValue}>₹{pendingFines}</Text>
+                            <Text style={styles.histStatValue}>₹{pendingFineAmount}</Text>
                             <Text style={styles.histStatLabel}>Pending</Text>
                         </View>
                         <View style={styles.histStatCard}>
                             <View style={[styles.statIconSmall, { backgroundColor: COLORS.successGlow }]}>
                                 <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
                             </View>
-                            <Text style={styles.histStatValue}>₹{paidFines}</Text>
-                            <Text style={styles.histStatLabel}>Paid</Text>
+                            <Text style={styles.histStatValue}>{rides.length - overtimeRides}</Text>
+                            <Text style={styles.histStatLabel}>On Time</Text>
                         </View>
                     </View>
 
@@ -188,19 +239,30 @@ export default function HistoryScreen() {
 
                     {/* Rides - grid on desktop */}
                     <View style={desktop && styles.ridesGrid}>
-                        {filteredRides.length === 0 ? (
+                        {loadingRides ? (
+                            <View style={styles.emptyState}>
+                                <ActivityIndicator size="large" color={COLORS.primary} />
+                                <Text style={styles.emptySubtext}>Loading rides…</Text>
+                            </View>
+                        ) : filteredRides.length === 0 ? (
                             <View style={styles.emptyState}>
                                 <View style={styles.emptyIconBg}>
                                     <Ionicons name="document-text-outline" size={40} color={COLORS.textMuted} />
                                 </View>
-                                <Text style={styles.emptyTitle}>No rides found</Text>
+                                <Text style={styles.emptyTitle}>
+                                    {filter === 'all' && rides.length === 0 ? 'No rides yet.' : 'No rides found'}
+                                </Text>
                                 <Text style={styles.emptySubtext}>
-                                    {filter === 'fines' ? 'Great! No fines to show.' : 'Start riding to build your history.'}
+                                    {filter === 'fines'
+                                        ? 'Great! No fines to show.'
+                                        : filter === 'clean'
+                                        ? 'Start riding to build your history.'
+                                        : 'Start riding to build your history.'}
                                 </Text>
                             </View>
                         ) : (
                             filteredRides.map((ride, index) => (
-                                <View key={ride.id} style={desktop && { width: '48%' }}>
+                                <View key={ride.sessionId || ride.id || index} style={desktop && { width: '48%' }}>
                                     <RideCard ride={ride} index={index} />
                                 </View>
                             ))
