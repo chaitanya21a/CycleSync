@@ -60,7 +60,24 @@ export async function getAdminDashboardStats() {
 export async function getRideHistory(rfidUid) {
   const snap = await get(ref(db, `usage_logs/${rfidUid}/history`));
   if (!snap.exists()) return [];
-  return Object.entries(snap.val()).map(([sessionId, session]) => ({ sessionId, ...session }));
+  
+  return Object.entries(snap.val()).map(([sessionId, session]) => {
+    // Calculate duration if not provided
+    let durationMinutes = session.durationMinutes;
+    if (!durationMinutes && session.startTime && session.endTime) {
+      const start = parseSessionTime(session.startTime);
+      const end = parseSessionTime(session.endTime);
+      if (start && end) {
+        durationMinutes = Math.round((end - start) / 60000); // ms to minutes
+      }
+    }
+    
+    return {
+      sessionId,
+      ...session,
+      durationMinutes: durationMinutes || 0,
+    };
+  });
 }
 
 export async function getAllRideSessions() {
@@ -155,4 +172,33 @@ export async function checkAndResetDailyUsage(rfidUid, dailyUsage) {
     return reset;
   }
   return dailyUsage;
+}
+
+// ── Bicycle management ─────────────────────────────────────────────────────
+
+export async function getInUseBicycles() {
+  try {
+    // Get all active rides (sessions without endTime or with endTime = 'Active...')
+    const sessions = await getAllRideSessions();
+    
+    const inUseBikes = [];
+    sessions.forEach((session) => {
+      if (!session.endTime || session.endTime === 'Active...') {
+        if (session.bicycleId) {
+          inUseBikes.push({
+            id: session.bicycleId,
+            bicycleId: session.bicycleId,
+            status: 'in_use',
+            startTime: session.startTime,
+            riderRfid: session.rfidUid,
+            sessionId: session.sessionId,
+          });
+        }
+      }
+    });
+
+    return inUseBikes;
+  } catch {
+    return [];
+  }
 }

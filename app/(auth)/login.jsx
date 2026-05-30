@@ -84,10 +84,10 @@ export default function LoginScreen() {
     });
 
     const features = [
-        { icon: 'qr-code-outline', label: 'Scan & Ride', desc: 'Unlock with QR' },
-        { icon: 'time-outline', label: 'Time Tracked', desc: '20 min per ride' },
-        { icon: 'location-outline', label: 'GPS Enabled', desc: 'Smart parking' },
-        { icon: 'shield-checkmark-outline', label: 'Secure', desc: 'Campus verified' },
+        { icon: 'bicycle-outline', label: 'Smart Campus Sharing', desc: 'Built for student bicycle access' },
+        { icon: 'time-outline', label: 'Ride Limits', desc: '20 min per ride • 60 min daily' },
+        { icon: 'alert-circle-outline', label: 'Fines & Violations', desc: 'Overtime and misuse are tracked' },
+        { icon: 'shield-checkmark-outline', label: 'Admin Control', desc: 'Ban, review, and manage users' },
     ];
 
     const renderBranding = () => (

@@ -14,7 +14,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, FONTS, SIZES } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { getRideHistory, getStudentByEmail, checkAndResetDailyUsage } from '../../services/firebaseService';
-import { seedMockRideData } from '../../services/seedMockRides';
 
 const FINE_REASONS = {
     wrong_parking: { label: 'Wrong Parking', icon: 'location-outline', color: COLORS.danger },
@@ -34,17 +33,34 @@ function RideCard({ ride, index }) {
         ]).start();
     }, []);
 
-    const startDate = new Date(
-        typeof ride.startTime === 'string' ? ride.startTime.replace(' ', 'T') : ride.startTime
-    );
+    // Parse Firebase time format: "YYYY-MM-DD HH:mm:ss"
+    const parseFirebaseTime = (timeStr) => {
+        if (!timeStr) return null;
+        try {
+            // Replace space with T for ISO format
+            const isoStr = timeStr.replace(' ', 'T');
+            const date = new Date(isoStr);
+            return Number.isNaN(date.getTime()) ? null : date;
+        } catch {
+            return null;
+        }
+    };
+
+    const startDate = parseFirebaseTime(ride.startTime);
+    const endDate = parseFirebaseTime(ride.endTime);
+
     const formatDate = (date) => {
+        if (!date) return 'Unknown';
         const today = new Date();
         const diff = Math.floor((today - date) / 86400000);
         if (diff === 0) return 'Today';
         if (diff === 1) return 'Yesterday';
         return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
     };
-    const formatTime = (date) => date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    const formatTime = (date) => {
+        if (!date) return '—';
+        return date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    };
 
     // Map Firebase session fields to display values
     const displayId = ride.bicycleId || ride.sessionId || 'Session';
@@ -83,12 +99,12 @@ function RideCard({ ride, index }) {
                 </View>
                 <View style={styles.routeLabels}>
                     <View style={styles.routeRow}>
-                        <Ionicons name="ellipse" size={6} color={COLORS.success} />
-                        <Text style={styles.routeText}>{displayStart}</Text>
+                        <Ionicons name="clock-outline" size={6} color={COLORS.success} />
+                        <Text style={styles.routeText}>{formatTime(startDate)}</Text>
                     </View>
                     <View style={styles.routeRow}>
                         <Ionicons name="flag" size={6} color={COLORS.primary} />
-                        <Text style={styles.routeText}>{displayEnd}</Text>
+                        <Text style={styles.routeText}>{formatTime(endDate)}</Text>
                     </View>
                 </View>
             </View>
@@ -133,23 +149,6 @@ export default function HistoryScreen() {
         (async () => {
             try {
                 let data = await getRideHistory(user.rfidUid);
-                if (data.length === 0) {
-                    await seedMockRideData(user.rfidUid);
-                    data = await getRideHistory(user.rfidUid);
-                    if (user.email && setUser) {
-                        const refreshed = await getStudentByEmail(user.email);
-                        if (refreshed) {
-                            const { rfidUid, student } = refreshed;
-                            const dailyUsage = await checkAndResetDailyUsage(rfidUid, student.dailyUsage);
-                            setUser({
-                                ...student,
-                                rfidUid,
-                                dailyUsage,
-                                firebaseUid: user.firebaseUid,
-                            });
-                        }
-                    }
-                }
                 setRides(data);
             } catch {
                 setRides([]);

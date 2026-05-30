@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="700" viewBox="0 0 1100 700">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2b2f3a" />
+    </marker>
+    <style>
+      .box { fill:#ffffff; stroke:#2b2f3a; stroke-width:2; rx:10; ry:10; }
+      .title { font: 700 18px/1.1 'Segoe UI', Roboto, sans-serif; fill:#111827 }
+      .text { font: 400 14px/1.2 'Segoe UI', Roboto, sans-serif; fill:#374151 }
+      .note { font: 400 12px/1.1 'Segoe UI', Roboto, sans-serif; fill:#6b7280 }
+    </style>
+  </defs>
+
+  <!-- Header -->
+  <text x="40" y="36" class="title">CycleSync — User Journey (Visual)</text>
+  <text x="40" y="58" class="note">Shows the typical flow for a user from login → ride → history</text>
+
+  <!-- Step 1: Open App / Auth -->
+  <g transform="translate(60,100)">
+    <rect class="box" width="220" height="70"></rect>
+    <text x="16" y="28" class="title">Open App</text>
+    <text x="16" y="50" class="text">Launch, check auth (email + RFID)</text>
+  </g>
+
+  <!-- Step 2: Home / Map -->
+  <g transform="translate(360,100)">
+    <rect class="box" width="220" height="70"></rect>
+    <text x="16" y="28" class="title">Home / Map</text>
+    <text x="16" y="50" class="text">View nearby bikes, Scan button, map</text>
+  </g>
+
+  <!-- Step 3: Scan / Start Ride -->
+  <g transform="translate(660,100)">
+    <rect class="box" width="280" height="70"></rect>
+    <text x="16" y="28" class="title">Scan / Start Ride</text>
+    <text x="16" y="50" class="text">Scan QR or bike RFID → start session</text>
+  </g>
+
+  <!-- Arrows top row -->
+  <line x1="280" y1="135" x2="360" y2="135" stroke="#2b2f3a" stroke-width="2" marker-end="url(#arrow)" />
+  <line x1="580" y1="135" x2="660" y2="135" stroke="#2b2f3a" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- Middle: Riding -->
+  <g transform="translate(360,220)">
+    <rect class="box" width="560" height="90"></rect>
+    <text x="16" y="34" class="title">Riding (Active Session)</text>
+    <text x="16" y="58" class="text">Active UI: elapsed timer, Stop button, bike ID</text>
+    <text x="16" y="76" class="note">App polls `getActiveSession()` or listens to RTDB updates</text>
+  </g>
+
+  <!-- Arrow down from Scan to Riding -->
+  <line x1="800" y1="170" x2="800" y2="220" stroke="#2b2f3a" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- End Ride -->
+  <g transform="translate(60,360)">
+    <rect class="box" width="220" height="80"></rect>
+    <text x="16" y="36" class="title">End Ride</text>
+    <text x="16" y="60" class="text">Write `endTime`, compute `durationMinutes`</text>
+  </g>
+
+  <!-- Post-Ride: Receipt / Fines -->
+  <g transform="translate(360,360)">
+    <rect class="box" width="260" height="80"></rect>
+    <text x="16" y="36" class="title">Post-Ride</text>
+    <text x="16" y="56" class="text">Show summary; flag fine if overtime</text>
+  </g>
+
+  <!-- History -->
+  <g transform="translate(700,360)">
+    <rect class="box" width="220" height="80"></rect>
+    <text x="16" y="36" class="title">History</text>
+    <text x="16" y="56" class="text">Read `usage_logs/{rfidUid}/history`</text>
+  </g>
+
+  <!-- Arrows middle row -->
+  <line x1="220" y1="370" x2="360" y2="370" stroke="#2b2f3a" stroke-width="2" marker-end="url(#arrow)" />
+  <line x1="620" y1="370" x2="700" y2="370" stroke="#2b2f3a" stroke-width="2" marker-end="url(#arrow)" />
+
+  <!-- Data backend note -->
+  <g transform="translate(60,480)">
+    <rect x="0" y="0" width="860" height="80" rx="8" ry="8" fill="#f8fafc" stroke="#e6edf3" />
+    <text x="12" y="26" class="title">Backend / Hardware</text>
+    <text x="12" y="48" class="note">Firebase Realtime DB stores `students/` and `usage_logs/` &nbsp;•&nbsp; ESP32 writes sessions</text>
+    <text x="12" y="64" class="note">Time format: "YYYY-MM-DD HH:mm:ss" — app parses and computes durations</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="40" y="600" class="note">Generated: user-perspective flow for CycleSync</text>
+
+</svg>
